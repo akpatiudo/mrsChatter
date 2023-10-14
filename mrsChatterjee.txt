@@ -1,0 +1,571 @@
+```{r}
+#install.packages('tidytext') #only install packages once
+library(tidytext)
+#install.packages('SnowballC') #only install packages once
+library(SnowballC)
+#install.packages('wordcloud') #only install packages once
+library(wordcloud)
+## Loading required package: RColorBrewer
+#install.packages('Rcpp') #actually, this package may need to be updated
+library(Rcpp)
+library(twitteR)
+library(ROAuth)
+library(hms)
+library(lubridate) 
+library(tm)
+library(igraph)
+library(glue)
+library(networkD3)
+library(rtweet)
+library(plyr)
+library(stringr)
+library(ggplot2)
+library(ggeasy)
+library(plotly)
+library(dplyr)  
+library(hms)
+library(lubridate) 
+library(magrittr)
+library(tidyverse)
+library(janeaustenr)
+library(widyr)
+```
+
+```{r}
+# Authenticate with your Twitter API credentials
+create_token(
+  app = "put yours",
+  consumer_key = "xxxx",
+  consumer_secret = "####",
+  access_token = "######",
+  access_secret = "####"
+)
+```
+
+```{r}
+search_words <- "#MrschatterjeeVsNorwayTrailer OR MrschatterjeeVsNorwayTrailer OR #MrschatterjeeVsNorway OR MrschatterjeeVsNorway"
+search_query <- paste0(search_words, " -filter:retweets -filter:replies")
+
+get_tweets <- function(search_query, num_tweets) {
+  tweets <- search_tweets(q = search_query,
+                          n = num_tweets,
+                          lang = "en",
+                          tweet_mode = "extended")
+  
+  tweets_tibble <- tibble(tweet_id = tweets$id,
+                          created_at = tweets$created_at,
+                          text = tweets$full_text,
+                          retweet = tweets$retweet_count,
+                          favorite = tweets$favorite_count)
+  
+  return(tweets_tibble)
+}
+
+# Set the number of tweets to retrieve per chunk
+tweets_per_chunk <- 400
+
+# Set the total number of tweets to retrieve
+total_tweets <- 40000
+
+# Calculate the number of chunks required
+num_chunks <- ceiling(total_tweets / tweets_per_chunk)
+
+# Create an empty list to store the tweets
+all_tweets <- list()
+
+# Retrieve tweets in chunks
+for (i in 1:num_chunks) {
+  start <- (i - 1) * tweets_per_chunk + 1
+  end <- min(i * tweets_per_chunk, total_tweets)
+  chunk_tweets <- get_tweets(search_query, end)
+  all_tweets[[i]] <- chunk_tweets
+  
+  # Pause for a minute between each chunk to comply with Twitter rate limits
+  Sys.sleep(60)
+}
+
+# Combine all chunks into a single tibble dataframe
+tweets_tibble <- bind_rows(all_tweets)
+
+# Save the tibble dataframe to a CSV file
+save_path <- "C:/Users/ebene/Desktop/text analysis/tweets.csv"
+write_csv(tweets_tibble, path = save_path)
+tweets_tibble<-read.csv("C:/Users/ebene/Desktop/text analysis/tweets.csv")
+# Save as RDS file
+saveRDS(tweets_tibble, file = "C:/Users/ebene/Desktop/text analysis/tweets.rds")
+tweets.rds<-read_rds("C:/Users/ebene/Desktop/text analysis/tweets.rds")
+```
+
+## 3. Data Assessment and Cleaning
+```{r}
+# Rename column names
+tweets.rds <- tweets.rds%>%
+  rename(
+    Id = tweet_id,
+    Time_of_tweet = created_at,
+    Tweet = text,
+    Retweets = retweet,
+    Likes = favorite
+  )
+head(tweets.rds)
+```
+
+```{r}
+# Count the number of duplicated rows based on 'Id' column
+duplicate_count <- tweets.rds %>% 
+  filter(duplicated(Id)) %>% 
+  nrow()
+duplicate_count
+```
+
+```{r}
+str(tweets.rds)# use to see the data type of tibble data frame
+summary(tweets.rds)# to see the statistical statues of data
+dim(tweets.rds) # size of your data
+```
+
+```{r}
+library(stringr)
+
+# Define function to extract hashtags and remove '#'
+getHashtags <- function(tweet) {
+  hashtags <- str_extract_all(tweet, "\\#\\w+")
+  hashtags <- gsub("#", "", unlist(hashtags))
+  hashtags <- paste(hashtags, collapse = " ")
+  return(hashtags)
+}
+
+# Apply the function to 'Tweet' column and create 'Hashtags' column
+tweets.rds <- tweets.rds %>%
+  mutate(hashtags = sapply(Tweet, getHashtags))
+
+head(tweets.rds)
+```
+
+
+```{r}
+library(tidytext )
+# Split the hashtags into separate rows
+hashtags_df <- tweets.rds %>%
+  select(hashtags) %>%
+  filter(!is.na(hashtags)) %>%
+  separate_rows(hashtags, sep = " ")
+
+# Count the occurrences of each hashtag
+
+num_hashtags_counts <- hashtags_df %>%
+  group_by(hashtags) %>%
+  tally() %>%
+  arrange(desc(n))
+
+# Rename the columns
+colnames(num_hashtags_counts) <- c("Hashtags", "Count")
+
+# Sort the dataframe by count in descending order
+num_hashtags_counts <- num_hashtags_counts %>%
+  arrange(desc(Count))
+#head(num_hashtags_counts)
+write_rds(num_hashtags_counts,"C:/Users/ebene/Desktop/text analysis/num_hashtags.rds")
+num_hashtags.rds<-read_rds("C:/Users/ebene/Desktop/text analysis/num_hashtags.rds")
+head(num_hashtags.rds)
+```
+
+```{r}
+# Check for top 10 hashtags
+#head(hashtags_df, 10)
+
+top_10_hashtags <-num_hashtags.rds %>%
+  arrange(desc(Count)) %>%
+  head(10)
+top_10_hashtags
+
+
+write_rds(top_10_hashtags,"C:/Users/ebene/Desktop/text analysis/top_10_hashtags.rds")
+top_10_hashtags.rds<-read_rds("C:/Users/ebene/Desktop/text analysis/top_10_hashtags.rds")
+head(top_10_hashtags.rds)
+```
+
+## 4  Data Analysis
+using lubridate package to see the day and time each tweet was made
+```{r}
+library(lubridate)
+
+tweets.rds$day.tweeted <- wday(tweets.rds$Time_of_tweet,label = T)
+tweets.rds$hour.tweeted <- hour(ymd_hms(tweets.rds$Time_of_tweet))
+```
+
+
+```{r}
+library(ggplot2)
+
+ggplot(tweets.rds, aes(x = day.tweeted, fill = day.tweeted)) +
+  geom_density(alpha = 0.5) +
+  scale_fill_discrete(guide = "none")
+
+```
+
+# plot tweets by hour
+```{r}
+ggplot(tweets.rds, aes(x = hour.tweeted)) + 
+  geom_density()
+```
+
+
+```{r}
+#Prepering my tweets for sentiment analysis
+tweets.list <- tweets.rds$Tweet
+```
+
+Then  I turned my “tweets.list” into a corpus.
+```{r}
+
+tweets.corpus<-Corpus(VectorSource(tweets.list))  
+````
+
+turing curpus into tibble data frame 
+```{r}
+tweets.corpus<-tm_map(tweets.corpus,removePunctuation)
+removeSpecialChars <- function(x) gsub("[^a-zA-Z0-9 ]","",x)#remove garbage terms
+removeSpecialChars <- function(x) gsub('https://','',x)# remove links http
+removeSpecialChars <- function(x) gsub("@\\w+", "", x) # remove at
+tweets.corpus<-tm_map(tweets.corpus,removeSpecialChars) #application of custom function
+tweets.corpus<-tm_map(tweets.corpus,function(x) removeWords(x,stopwords())) #removes stop words
+tweets.corpus<-tm_map(tweets.corpus,tolower)
+tweets.corpus <- tm_map(tweets.corpus, removeWords, 
+                      c("MrsChatterjeevsnorway", "rt", "re", "amp","MrsChatterjeeVsNorway"))
+tweets.corpus <- tm_map(tweets.corpus, removeWords, c("[[:digit:]]", ""))# remove numbers
+```
+
+##Tokenize the text
+tokenizing splits the corpus into words using the tokenize_word function. In this case the result is a list with 1993 items in it, each representing a specific word.
+```{r}
+library(tidytext)
+
+tweets.b4token.rds_dirty <- tweets.b4token.rds %>%
+  as_tibble()  # Convert to tibble if it's not already
+
+tokens.Tweet_clean <- tweets.b4token.rds_dirty %>% unnest_tokens(output = word, input = Tweet_clean, token = 'words', to_lower = TRUE)
+```
+
+
+```{r}
+#add order of the words
+tokens.Tweet_clean <- tokens.Tweet_clean %>% mutate(order = row_number())
+
+# Count tokens
+tokens.Tweet_clean %>% nrow()# number of words left in corpus
+```
+
+lets view few words
+```{r}
+# First few words
+tokens.Tweet_clean[1:30, ]
+# count the number of matches of a substring
+tokens.Tweet_clean %>% dplyr::filter(word == str_sub('norway')) %>% count()
+
+```
+
+```{r}
+# Look at the most important frequent words
+tokens.Tweet_clean %>%
+  group_by(word) %>%
+  summarise(count = n()) %>%
+  filter(count > 700) %>%
+  arrange(desc(count)) %>%
+  mutate(tokens.Tweet_clean = reorder(word, count)) %>%
+  ggplot(aes(x = count, y = tokens.Tweet_clean)) +
+  geom_col()
+```
+
+
+```{r}
+tokens.Tweet_clean <- tokens.Tweet_clean %>%
+  anti_join(stop_words)# further dropped stop words and I am left with 134,017 words
+```
+
+
+```{r}
+tokens.Tweet_clean %>% nrow()# tweets count
+```
+
+
+words like i was missing 
+```{r}
+tokens.Tweet_clean %>% 
+  group_by(word) %>% 
+  summarise(count = n()) %>%
+  filter(count >700) %>% 
+  arrange(desc(count)) %>% 
+  mutate(tokens.Tweet_clean = reorder(word, count)) %>% 
+  ggplot(aes(x=count, y=tokens.Tweet_clean)) +
+  geom_col()
+```
+
+
+
+wprd cloud
+```{r}
+set.seed(200)
+
+tokens.Tweet_clean %>% 
+  group_by(word) %>% 
+  summarise(count = n()) %>% 
+  with(wordcloud(words=word, freq=count, min.freq=30, max.words=200, random.order=F, rot.per=0.80, colors=brewer.pal(8, "Dark2")))
+
+```
+
+
+```{r}
+library(tidytext)
+
+lm_dict <- get_sentiments("nrc")
+tweets.tibble1.df1_sentiment <- dplyr::select(tweets.tibble1.df1_sentiment, 
+                                 SentimentGI, SentimentHE,
+                                 SentimentLM, SentimentQDAP,
+                                 WordCount)
+head(tweets.tibble1.df1_sentiment, n =5)# a look at five rows of each of the sentiment scores of the four dictionaries
+```
+
+There is  no theoretical reason to rely on one of these dictionaries more than the others, thus, I created a mean value for each tweet’s sentiment level, leaving us with a single sentiment value for each tweet. Using the mutate() command. 
+```{r}
+tweets.tibble1.df1_sentiment <- dplyr::mutate(tweets.tibble1.df1_sentiment, 
+                            mean_sentiment = rowMeans(tweets.tibble1.df1_sentiment[,-5]))              
+#In the given code, [,-5] is used to select all columns in the ds_tweets.df1_sentiment data frame except the fifth column.
+                              
+```
+
+```{r}
+tweets.tibble1.df1_sentiment <- dplyr::select(tweets.tibble1.df1_sentiment, 
+                                 WordCount, 
+                                 mean_sentiment)
+```
+
+```{r}
+tweets.rds2 <- cbind.data.frame(tweets.rds1, tweets.tibble1.df1_sentiment)
+tweets.rds2
+
+```
+
+
+I am looking at the reasons Whey people are either happy or unhappy with the movie. Thus, I use the filter() function to create two new data frame with tweets whose mean value is less than 0, represents negative sentiment, those not in support or does not like it. Then those whose mean value is greater than 0, are those that love it and they represent positive sentiment. Those whose mean value are 0, represent neutrality. This command gives a data frame with only 2100,5746 and 1000 for negative,positive and neutral sentiment tweets respectively
+```{r}
+library(dplyr)
+
+tweets.rds2_negative <- filter(tweets.rds2, mean_sentiment < 0)
+tweets.rds2_positive <- filter(tweets.rds2, mean_sentiment > 0)
+tweets.rds2_neutral <- filter(tweets.rds2, mean_sentiment == 0)
+
+nrow(tweets.rds2_negative)
+nrow(tweets.rds2_positive)
+nrow(tweets.rds2_neutral)
+
+sentiment_count <- tweets.rds2 %>%
+  group_by(sentiment = ifelse(mean_sentiment < 0, "Negative",
+                             ifelse(mean_sentiment > 0, "Positive", "Neutral"))) %>%
+  summarise(count = n())
+
+sentiment_count <- sentiment_count %>%
+  mutate(percentage = count / sum(count) * 100)
+#head(num_hashtags.rds)
+```
+
+
+```{r}
+# look at similar words
+arrange(tokens.Tweet_clean, word)[315:325, ]
+
+#Stem the tokens
+stemmed <- tokens.Tweet_clean %>% mutate(stem = SnowballC::wordStem(word))# Lemmatizing, on the other hand, aims to determine the lemma,dictionary form of a word, it considers the context and grammar of the word.
+
+```
+
+# Sentiment Total
+```{r}
+# sentiment dictionary from tidytext use for sentiment analysis
+library(tidytext)
+
+lm_dict <- get_sentiments("nrc")
+lm_dict %>% group_by(sentiment) %>% summarise(count = n())
+
+```
+
+the "NRC Emotion Lexicon" developed by Saif M. Mohammad and Peter D. Turney. is One popular sentiment lexicon for political analysis It includes sentiment annotations for various emotions and is commonly used in political sentiment analysis studies.
+You can obtain the "NRC Emotion Lexicon" using the get_sentiments() function from the tidytext package.
+
+```{r}
+# Add sentiment
+sentimented <- stemmed %>% 
+  inner_join(lm_dict, by = 'word')
+
+# Explore totals
+sentimented %>% 
+  group_by(sentiment) %>% 
+  summarise(count = n(), percent = count/nrow(sentimented))
+```
+
+#emotion plot
+```{r}
+sentimented %>% 
+  group_by(sentiment) %>% 
+  summarise(count = n(), percent = count/nrow(sentimented)) %>% 
+  ggplot(aes(x='', y=percent, fill=sentiment)) +
+  geom_bar(width=1, stat='identity')
+```
+
+## how words werew pair in tweet
+```{r}
+#bigram
+chatterjee<-read_rds("C:/Users/ebene/Desktop/text analysis/tweets.rds")# i have to reload same data to enable me have untokened tweets
+bi.gram.words <-chatterjee %>% 
+  unnest_tokens(
+    input = text, 
+    output = bigram, 
+    token = 'ngrams', 
+    n = 2
+  ) %>% 
+  filter(!is.na(bigram))
+
+library(tidytext)
+library(dplyr)
+
+
+# Filter out bigrams containing numbers
+bi.gram.words <- bi.gram.words %>%
+  filter(!grepl("\\d", bigram))
+
+# Print the filtered bigrams
+bi.gram.words %>% 
+  pull(bigram) %>% 
+  head(10)
+```
+
+
+```{r}
+library(tibble)
+data(stopwords)
+extra.stop.words <- c('https')
+stopwords.df <- tibble(
+  word = c(stopwords("es"), stopwords("en"), extra.stop.words)
+)
+
+#Next, we filter for stop words and remove white spaces.
+
+
+bi.gram.words %<>% 
+  separate(col = bigram, into = c('word1', 'word2'), sep = ' ') %>% 
+  filter(! word1 %in% stopwords.df$word) %>% 
+  filter(! word2 %in% stopwords.df$word) %>% 
+  filter(! is.na(word1)) %>% 
+  filter(! is.na(word2)) 
+```
+
+Finally, i group and count by bigram.
+```{r}
+bi.gram.count <- bi.gram.words %>% 
+  dplyr::count(word1, word2, sort = TRUE) %>% 
+  dplyr::rename(weight = n)
+
+bi.gram.count %>% head()
+```
+
+
+```{r}
+threshold <- 145
+
+# For visualization purposes we scale by a global factor. 
+ScaleWeight <- function(x, lambda) {
+  x / lambda
+}
+
+network <-  bi.gram.count %>%
+  filter(weight > threshold) %>%
+  mutate(weight = ScaleWeight(x = weight, lambda = 2E3)) %>% 
+  graph_from_data_frame(directed = FALSE)
+
+plot(
+  network, 
+  vertex.size = 1,
+  vertex.label.color = 'black', 
+  vertex.label.cex = 0.7, 
+  vertex.label.dist = 1,
+  edge.color = 'gray', 
+  main = 'Bigram Count Network', 
+  sub = glue('Weight Threshold: {threshold}'), 
+  alpha = 60
+)
+```
+
+We can even improvise the representation by setting the sizes of the nodes and the edges by the degree and weight respectively.
+
+```{r}
+V(network)$degree <- strength(graph = network)
+
+# Compute the weight shares.
+E(network)$width <- E(network)$weight/max(E(network)$weight)
+
+plot(
+  network, 
+  vertex.color = 'lightblue',
+  # Scale node size by degree.
+  vertex.size = 2*V(network)$degree,
+  vertex.label.color = 'black', 
+  vertex.label.cex = 0.6, 
+  vertex.label.dist = 1.6,
+  edge.color = 'gray', 
+  # Set edge width proportional to the weight relative value.
+  edge.width = 3*E(network)$width ,
+  main = 'Bigram Count Network', 
+  sub = glue('Weight Threshold: {threshold}'), 
+  alpha = 60
+)
+```
+
+
+We can go a step further and make our visualization more dynamic using the networkD3 library.
+
+```{r}
+threshold <- 99
+
+network <-  bi.gram.count %>%
+  filter(weight > threshold) %>%
+  graph_from_data_frame(directed = FALSE)
+
+# Store the degree.
+V(network)$degree <- strength(graph = network)
+# Compute the weight shares.
+E(network)$width <- E(network)$weight/max(E(network)$weight)
+
+# Create networkD3 object.
+network.D3 <- igraph_to_networkD3(g = network)
+# Define node size.
+network.D3$nodes %<>% mutate(Degree = (1E-2)*V(network)$degree)
+# Define color group
+network.D3$nodes %<>% mutate(Group = 1)
+# Define edges width. 
+network.D3$links$Width <- 10*E(network)$width
+
+forceNetwork(
+  Links = network.D3$links, 
+  Nodes = network.D3$nodes, 
+  Source = 'source', 
+  Target = 'target',
+  NodeID = 'name',
+  Group = 'Group', 
+  opacity = 0.9,
+  Value = 'Width',
+  Nodesize = 'Degree', 
+  # We input a JavaScript function.
+  linkWidth = JS("function(d) { return Math.sqrt(d.value); }"), 
+  fontSize = 12,
+  zoom = TRUE, 
+  opacityNoHover = 1
+)
+
+```
+
+license()
+```{r}
+license()
+```
+
+ %in% 
