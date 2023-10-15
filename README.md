@@ -1,5 +1,6 @@
 # mrsChatter
 Mrs Chatterjee Vs Norway: A Review Analysis of Twitter’s Perception Of The Movie.
+
 Introduction
 …who loves the child most, the mother or the foster parents?
 Who decide whose cultural way of doing things is the best and on what moral scale? Anything you have to lie and blackmail under any guise to achieve defies the essence of morality itself. Mrs Chatterjee offence is rooted somewhat in her culture, the official list of charges against her include reasons like sleeping in the same bed, hand-feeding her kids and applying kohl on their faces to ward off evil eye. She is called mad, unstable and unfit to be a mother, but she will fight against all odds to get her kids back. 
